@@ -1,0 +1,57 @@
+services:
+  personaplex:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8998:8998"
+    environment:
+      - NO_TORCH_COMPILE=1
+    env_file:
+      - .env
+    command: ["/app/moshi/.venv/bin/python", "-m", "moshi.server", "--host", "0.0.0.0"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    volumes:
+      - ./.cache:/root/.cache
+
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgresql://gateway:gateway@postgres:5432/personaplex
+      - PERSONAPLEX_WS_URL=ws://personaplex:8998/api/chat
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      personaplex:
+        condition: service_started
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=gateway
+      - POSTGRES_PASSWORD=gateway
+      - POSTGRES_DB=personaplex
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway -d personaplex"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
